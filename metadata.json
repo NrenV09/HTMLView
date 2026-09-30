@@ -1,6 +1,6 @@
 {
-  "name": "StaticDock — Offline HTML Host & Asset Sandbox",
-  "description": "Drag-and-drop offline HTML host, multi-asset bundler, live code sandbox, and GitHub Pages static site packager.",
+  "name": "StaticDock — Offline HTML Host & Auto GitHub Pages Publisher",
+  "description": "Drag-and-drop offline HTML host, asset bundler, live preview sandbox, and automatic GitHub Pages publisher.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

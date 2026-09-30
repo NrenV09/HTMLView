@@ -20,7 +20,7 @@ function resolveRelativePath(baseHtmlPath: string, targetRef: string): string {
     return normalizePath(cleanRef);
   }
   const baseParts = normalizePath(baseHtmlPath).split('/');
-  baseParts.pop(); // remove filename
+  baseParts.pop(); // remove base filename
 
   const refParts = cleanRef.replace(/\\/g, '/').split('/');
   for (const part of refParts) {
@@ -54,7 +54,7 @@ export function findMatchingFile(
   );
   if (rawMatch) return rawMatch;
 
-  // Fallback by filename if user dragged flat files together
+  // Fallback by filename if flat files were dropped together
   const refBasename = cleanRef.split('/').pop()?.toLowerCase();
   if (refBasename) {
     return files.find((f) => f.name.toLowerCase() === refBasename);
@@ -213,7 +213,7 @@ export function compileProjectHtml(
   let imagesCount = 0;
   let inlineStylesCount = 0;
 
-  // 1. Process existing inline <style> tags for CSS url() references
+  // 1. Process inline <style> tags
   const styleElements = Array.from(doc.querySelectorAll('style'));
   for (const styleEl of styleElements) {
     inlineStylesCount++;
@@ -389,7 +389,7 @@ export function compileProjectHtml(
     }
   }
 
-  // 5. Record local HTML links (<a href="other.html">)
+  // 5. Detect local HTML links (<a href="page.html">)
   const anchors = Array.from(doc.querySelectorAll('a[href]'));
   for (const a of anchors) {
     const href = a.getAttribute('href') || '';
@@ -410,7 +410,7 @@ export function compileProjectHtml(
   const parsedTitle = doc.querySelector('title')?.textContent?.trim() || project.title;
   const standaloneHtml = `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
 
-  // Inject the preview bridge at the start of <head> for the live workbench iframe
+  // Inject preview bridge for live workbench iframe
   if (doc.head) {
     doc.head.insertAdjacentHTML('afterbegin', RUNTIME_BRIDGE_SCRIPT);
   } else {

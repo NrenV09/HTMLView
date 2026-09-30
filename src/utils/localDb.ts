@@ -1,7 +1,7 @@
 import { HostedProject } from '../types/workspace';
 import { STARTER_PROJECTS } from '../data/starterProjects';
 
-const DB_NAME = 'staticdock_offline_host_v1';
+const DB_NAME = 'staticdock_offline_host_v2';
 const STORE_NAME = 'projects';
 const DB_VERSION = 1;
 
@@ -52,7 +52,7 @@ export async function saveProject(project: HostedProject): Promise<void> {
       tx.onerror = () => reject(tx.error);
     });
   } catch {
-    // Fallback silently if IndexedDB is restricted
+    // Ignore if storage restricted
   }
 }
 
@@ -69,7 +69,7 @@ export async function saveManyProjects(projects: HostedProject[]): Promise<void>
       tx.onerror = () => reject(tx.error);
     });
   } catch {
-    // Fallback silently
+    // Ignore
   }
 }
 

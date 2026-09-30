@@ -76,7 +76,6 @@ async function unpackZipFile(zipFile: File): Promise<VirtualFile[]> {
     if (zipEntry.dir) continue;
     if (rawPath.includes('__MACOSX') || rawPath.endsWith('.DS_Store')) continue;
 
-    // Strip common single top-level folder prefix if present
     const cleanPath = rawPath.replace(/^\/+/, '');
     const name = cleanPath.split('/').pop() || cleanPath;
     const { kind, mimeType, isBinary } = detectFileKindAndMime(name);
@@ -264,7 +263,7 @@ async function processRawFiles(
     }
   }
 
-  // Strip shared single top-level directory prefix if user dragged a folder
+  // Strip shared single top-level directory prefix if whole folder was dropped
   if (virtualFiles.length > 1) {
     const firstSegs = virtualFiles.map((f) => f.path.split('/')[0]);
     const allSameRoot =
@@ -288,7 +287,6 @@ export function buildProjectFromFiles(files: VirtualFile[]): HostedProject {
     htmlFiles.find((f) => f.name.toLowerCase() === 'index.html') ||
     htmlFiles[0];
 
-  // If user dropped only non-HTML assets (e.g. an SVG or CSS), generate a wrapper index.html
   let projectFiles = [...files];
   let entryHtmlPath = indexHtml ? indexHtml.path : 'index.html';
 
@@ -369,7 +367,7 @@ ${jsLinks}
     baseName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'hosted-page';
+      .replace(/^-|-$/g, '') || 'offline-site';
 
   return {
     id: `proj-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -420,7 +418,7 @@ export async function downloadGitHubPagesZip(
     }
   }
 
-  // Also include a self-contained single-file build for 1-file portability
+  // Include standalone HTML bundle
   zip.file(`${project.slug}.standalone.html`, standaloneHtml);
 
   // Add GitHub Actions static pages workflow
@@ -463,17 +461,13 @@ jobs:
 
   const readme = `# ${project.title}
 
-Exported from **StaticDock — Offline HTML Host & Asset Sandbox**.
+Exported from **StaticDock — Offline HTML Host & Auto GitHub Pages Publisher**.
 
 ## Included Files
 ${project.files.map((f) => `- \`${f.path}\` (${f.mimeType}, ${f.sizeBytes} bytes)`).join('\n')}
 - \`${project.slug}.standalone.html\` (Single-file offline bundle with all CSS, JS, and assets inlined)
 - \`.nojekyll\` (Ensures GitHub Pages serves all asset paths unmodified)
 - \`.github/workflows/static-pages.yml\` (Zero-config GitHub Pages deployment workflow)
-
-## Deploy to GitHub Pages
-1. Create a new GitHub repository and push these files to the \`main\` branch.
-2. In your repository **Settings → Pages**, set **Source** to **GitHub Actions** (or **Deploy from a branch: main / root**).
 `;
   zip.file('README.md', readme);
 

@@ -14,10 +14,21 @@ export interface VirtualFile {
   name: string;
   mimeType: string;
   kind: AssetKind;
-  content: string; // UTF-8 string for text files, or Data URL (data:image/png;base64,...) for binary files
+  content: string; // UTF-8 string or Data URL (data:image/png;base64,...)
   isDataUrl?: boolean;
   sizeBytes: number;
   updatedAt: number;
+}
+
+export interface GitHubPublishInfo {
+  publishedAt: number;
+  repoUrl: string;
+  pagesUrl: string;
+  repoName: string;
+  owner: string;
+  commitSha?: string;
+  branch: string;
+  isLive: boolean;
 }
 
 export interface HostedProject {
@@ -31,6 +42,7 @@ export interface HostedProject {
   createdAt: number;
   updatedAt: number;
   isStarter?: boolean;
+  githubPublishInfo?: GitHubPublishInfo;
 }
 
 export interface AssetDependency {
@@ -66,5 +78,19 @@ export interface IframeConsoleMessage {
 }
 
 export type ViewportPreset = 'fluid' | 'desktop' | 'laptop' | 'tablet' | 'mobile';
-export type WorkbenchTab = 'workspace' | 'asset-graph' | 'github-deploy' | 'dropzone';
+export type WorkbenchTab = 'workspace' | 'github-publisher' | 'asset-graph' | 'dropzone';
 export type EditorSplitMode = 'preview-only' | 'split' | 'code-only';
+
+export type GitHubStepStatus = 'idle' | 'in-progress' | 'completed' | 'error';
+
+export interface GitHubPublishPipelineStatus {
+  step: 'auth' | 'repo' | 'commit' | 'pages' | 'verify' | 'done';
+  status: 'idle' | 'running' | 'success' | 'error';
+  message: string;
+  error?: string;
+  repoUrl?: string;
+  pagesUrl?: string;
+  commitSha?: string;
+  owner?: string;
+  repo?: string;
+}

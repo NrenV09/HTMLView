@@ -88,7 +88,7 @@ export const AssetGraphView: React.FC<AssetGraphViewProps> = ({
             className="flex items-center gap-1.5 rounded-md bg-amber-500 px-4 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-400 transition-colors whitespace-nowrap cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Drop or Upload Assets into Site</span>
+            <span>Add Files to Site</span>
           </button>
         </div>
       </div>
@@ -212,15 +212,14 @@ export const AssetGraphView: React.FC<AssetGraphViewProps> = ({
                         {dep.status === 'external-url' && (
                           <span className="inline-flex items-center gap-1.5 text-amber-300">
                             <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                            <span>External URL (Requires network unless cached)</span>
+                            <span>External URL</span>
                           </span>
                         )}
                         {dep.status === 'unresolved' && (
                           <span className="inline-flex items-center gap-1.5 text-rose-400">
                             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                             <span>
-                              Missing local file — drop &ldquo;
-                              {dep.originalRef.split('/').pop()}&rdquo; to resolve
+                              Missing local file ({dep.originalRef.split('/').pop()})
                             </span>
                           </span>
                         )}
@@ -291,13 +290,13 @@ export const AssetGraphView: React.FC<AssetGraphViewProps> = ({
                             onClick={() => onSelectFileToEdit(file.path)}
                             className="text-amber-400 hover:text-amber-300 font-medium cursor-pointer"
                           >
-                            Edit Source
+                            Edit
                           </button>
                         )}
                         <button
                           onClick={() => downloadVirtualFile(file)}
                           className="text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-                          title="Download raw file"
+                          title="Download file"
                         >
                           <Download className="w-3.5 h-3.5" />
                         </button>
@@ -305,7 +304,7 @@ export const AssetGraphView: React.FC<AssetGraphViewProps> = ({
                           <button
                             onClick={() => onDeleteFile(file.id)}
                             className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
-                            title="Delete file from project"
+                            title="Delete file"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

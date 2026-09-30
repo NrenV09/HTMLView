@@ -6,12 +6,14 @@ import {
   Play,
   Layers,
   CheckCircle2,
+  Sparkles,
 } from 'lucide-react';
 import { HostedProject, VirtualFile } from '../types/workspace';
 import { ingestDataTransfer, ingestFileList } from '../utils/fileIngest';
 
 interface DropzoneViewProps {
   activeProject: HostedProject;
+  autoPublishOnDrop: boolean;
   onFilesIngested: (
     files: VirtualFile[],
     mode: 'new-project' | 'merge-current'
@@ -23,7 +25,7 @@ const DEFAULT_PASTE_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Instant Offline Scratchpad</title>
+  <title>Offline HTML Sandbox</title>
   <style>
     body {
       margin: 0;
@@ -56,14 +58,14 @@ const DEFAULT_PASTE_HTML = `<!DOCTYPE html>
 </head>
 <body>
   <div class="card">
-    <h1>Local HTML Host Ready</h1>
-    <p>This document is rendered 100% offline inside StaticDock. Click below to test JavaScript execution and console telemetry.</p>
-    <button id="pingBtn">Run Offline Script</button>
+    <h1>Offline HTML Host Active</h1>
+    <p>This document is rendered 100% offline inside StaticDock and ready for automatic GitHub Pages deployment.</p>
+    <button id="pingBtn">Run Script</button>
   </div>
   <script>
     document.getElementById('pingBtn').addEventListener('click', function() {
-      this.textContent = 'Executed at ' + new Date().toLocaleTimeString();
-      console.log('Offline button clicked inside custom HTML host.');
+      this.textContent = 'Active at ' + new Date().toLocaleTimeString();
+      console.log('Script running in offline sandbox');
     });
   </script>
 </body>
@@ -71,6 +73,7 @@ const DEFAULT_PASTE_HTML = `<!DOCTYPE html>
 
 export const DropzoneView: React.FC<DropzoneViewProps> = ({
   activeProject,
+  autoPublishOnDrop,
   onFilesIngested,
   onCreateFromRawHtml,
 }) => {
@@ -119,13 +122,13 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800 pb-6">
         <div>
           <p className="text-xs text-slate-400">
-            Zero-Network Local Ingest · HTML, CSS, JS, SVG, Images &amp; ZIP Archives
+            Offline File Ingest · HTML, CSS, JS, SVG, Images &amp; ZIP Bundles
           </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-100">
-            Drag &amp; Drop HTML or Static Website Assets
+            Drag &amp; Drop HTML or Website Files
           </h1>
           <p className="mt-1.5 text-sm text-slate-400 max-w-2xl">
-            Drop any <code className="font-mono text-slate-200">.html</code> file, companion <code className="font-mono text-slate-200">.css</code>/<code className="font-mono text-slate-200">.js</code> assets, a folder, or a <code className="font-mono text-slate-200">.zip</code> archive. Everything is parsed in-memory, stored in IndexedDB, and rendered immediately.
+            Drop any <code className="font-mono text-slate-200">.html</code> file, companion <code className="font-mono text-slate-200">.css</code>/<code className="font-mono text-slate-200">.js</code> assets, a folder, or a <code className="font-mono text-slate-200">.zip</code>. Parsed in-memory and rendered dynamically offline.
           </p>
         </div>
 
@@ -139,7 +142,7 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Host as New Local Site
+            Host as New Site
           </button>
           <button
             onClick={() => setIngestMode('merge-current')}
@@ -149,7 +152,7 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Merge into &ldquo;{activeProject.title.slice(0, 22)}&rdquo;
+            Add to &ldquo;{activeProject.title.slice(0, 18)}&rdquo;
           </button>
         </div>
       </div>
@@ -180,10 +183,16 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
             : `Drop Additional CSS, JS, SVG, or Image Assets into "${activeProject.title}"`}
         </h2>
 
+        {autoPublishOnDrop && (
+          <div className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 font-medium">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Auto-Publish on Drop is ENABLED — Will publish to GitHub Pages immediately</span>
+          </div>
+        )}
+
         <p className="mt-2 text-xs text-slate-400 max-w-xl mx-auto leading-relaxed">
-          Relative links like <code className="font-mono text-slate-300">&lt;link href=&quot;./style.css&quot;&gt;</code>,{' '}
-          <code className="font-mono text-slate-300">&lt;script src=&quot;./app.js&quot;&gt;</code>, and{' '}
-          <code className="font-mono text-slate-300">&lt;img src=&quot;./logo.svg&quot;&gt;</code> are automatically matched and inlined into the offline preview frame.
+          Relative links like <code className="font-mono text-slate-300">&lt;link href=&quot;./style.css&quot;&gt;</code> and{' '}
+          <code className="font-mono text-slate-300">&lt;script src=&quot;./app.js&quot;&gt;</code> are matched and inlined into the preview frame automatically.
         </p>
 
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -209,7 +218,7 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
             className="flex items-center gap-2 rounded-md bg-amber-500 px-4 py-2.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 transition-colors cursor-pointer"
           >
             <FileCode className="w-4 h-4" />
-            <span>Select HTML / Asset Files (.html, .css, .js, .zip)</span>
+            <span>Select HTML &amp; Asset Files</span>
           </button>
 
           <button
@@ -217,7 +226,7 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
             className="flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-4 py-2.5 text-xs font-medium text-slate-200 hover:border-slate-600 hover:text-white transition-colors cursor-pointer"
           >
             <FolderUp className="w-4 h-4 text-amber-400" />
-            <span>Select Entire Website Directory</span>
+            <span>Select Entire Folder</span>
           </button>
         </div>
 
@@ -232,12 +241,12 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            Persistent IndexedDB Storage
+            IndexedDB Offline Persistence
           </span>
         </div>
       </div>
 
-      {/* Instant Paste HTML Launcher */}
+      {/* Raw HTML Launcher */}
       <div className="border border-slate-800 bg-[#0f1522] rounded-md p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -246,7 +255,7 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
               <span>INSTANT RAW HTML LAUNCHER</span>
             </div>
             <h3 className="mt-1 text-base font-semibold text-slate-100">
-              Paste Raw HTML Code to Host &amp; Preview Immediately
+              Paste Raw HTML Code to Host &amp; Preview
             </h3>
           </div>
 
@@ -263,7 +272,7 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
               className="flex items-center gap-1.5 rounded-md bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 transition-colors whitespace-nowrap cursor-pointer"
             >
               <Play className="w-3.5 h-3.5" />
-              <span>Render HTML Preview</span>
+              <span>Preview HTML</span>
             </button>
           </div>
         </div>
@@ -271,7 +280,7 @@ export const DropzoneView: React.FC<DropzoneViewProps> = ({
         <textarea
           value={rawHtml}
           onChange={(e) => setRawHtml(e.target.value)}
-          rows={11}
+          rows={10}
           spellCheck={false}
           className="w-full rounded-md border border-slate-800 bg-[#070a10] p-4 font-mono text-xs text-slate-200 leading-relaxed focus:border-amber-500/70 focus:outline-none"
         />

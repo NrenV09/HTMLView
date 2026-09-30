@@ -8,19 +8,21 @@ import {
   FileImage,
   FileText,
   FolderPlus,
+  Globe,
   Maximize2,
   Minimize2,
   Monitor,
   Plus,
   RefreshCw,
+  Rocket,
   RotateCcw,
   Search,
   Smartphone,
+  Sparkles,
   Tablet,
   Terminal,
   Trash2,
   Upload,
-  WifiOff,
   X,
 } from 'lucide-react';
 import {
@@ -47,15 +49,12 @@ import {
   ingestDataTransfer,
   ingestFileList,
 } from './utils/fileIngest';
-import { PWAInstallButton } from './components/PWAInstallButton';
-import { useOnlineStatus } from './hooks/usePWAInstall';
+import { publishProjectToGitHubPages } from './utils/githubPublisher';
 import { AssetGraphView } from './components/AssetGraphView';
-import { GitHubDeployView } from './components/GitHubDeployView';
+import { GitHubPublisherView } from './components/GitHubPublisherView';
 import { DropzoneView } from './components/DropzoneView';
 
 export default function App() {
-  const isOnline = useOnlineStatus();
-
   const [projects, setProjects] = useState<HostedProject[]>(STARTER_PROJECTS);
   const [activeProjectId, setActiveProjectId] = useState<string>(
     STARTER_PROJECTS[0].id
@@ -77,29 +76,44 @@ export default function App() {
   const [consoleOpen, setConsoleOpen] = useState<boolean>(false);
   const [consoleLogs, setConsoleLogs] = useState<IframeConsoleMessage[]>([]);
 
+  // Auto-publish to GitHub Pages on drop setting
+  const [autoPublishOnDrop, setAutoPublishOnDrop] = useState<boolean>(() => {
+    return localStorage.getItem('staticdock_auto_publish') === 'true';
+  });
+
+  const toggleAutoPublish = (val: boolean) => {
+    setAutoPublishOnDrop(val);
+    localStorage.setItem('staticdock_auto_publish', String(val));
+    notify(
+      val
+        ? 'Auto-Publish ON: Dropped files will publish to GitHub Pages immediately.'
+        : 'Auto-Publish OFF: Dropped files will host locally only.'
+    );
+  };
+
   // Global drag-and-drop overlay state
   const [windowDragActive, setWindowDragActive] = useState<boolean>(false);
   const dragDepthRef = useRef<number>(0);
 
-  // Hidden file inputs for quick header / sidebar actions
+  // Hidden file inputs
   const quickOpenHtmlInputRef = useRef<HTMLInputElement | null>(null);
   const addAssetsToCurrentInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Modal for adding a new text file (e.g., styles.css, script.js, page.html)
+  // Modal for new text file
   const [showNewFileModal, setShowNewFileModal] = useState<boolean>(false);
   const [newFileName, setNewFileName] = useState<string>('custom.css');
 
-  // Toast notification
+  // Status notification toast
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   const notify = (msg: string) => {
     setStatusNotice(msg);
     setTimeout(() => {
       setStatusNotice((prev) => (prev === msg ? null : prev));
-    }, 3200);
+    }, 3800);
   };
 
-  // Load persisted projects from IndexedDB on mount
+  // Load projects from IndexedDB on initial mount
   useEffect(() => {
     let mounted = true;
     loadAllProjects().then((loaded) => {
@@ -122,7 +136,7 @@ export default function App() {
     );
   }, [projects, activeProjectId]);
 
-  // Compile the active HTML + all local CSS, JS, SVG, and image files
+  // Compile active HTML + all local CSS, JS, SVG, and image files
   const compiled = useMemo(() => {
     return compileProjectHtml(activeProject, activeHtmlPath);
   }, [activeProject, activeHtmlPath]);
@@ -135,7 +149,7 @@ export default function App() {
     );
   }, [activeProject, selectedEditorFilePath, activeHtmlPath]);
 
-  // Listen for postMessage events from the previewed HTML iframe (console logs & local links)
+  // Handle postMessage from previewed iframe (console logs & local anchor navigation)
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const data = event.data;
@@ -169,7 +183,7 @@ export default function App() {
     return () => window.removeEventListener('message', handleMessage);
   }, [activeProject, activeHtmlPath]);
 
-  // Global window drag-and-drop listeners so dropping an HTML file anywhere works immediately
+  // Window drag-and-drop listener
   useEffect(() => {
     const handleDragEnter = (e: DragEvent) => {
       if (!e.dataTransfer?.types?.includes('Files')) return;
@@ -218,6 +232,18 @@ export default function App() {
     setActiveTab('workspace');
   };
 
+  const handleUpdateProjectGithubInfo = async (
+    info: NonNullable<HostedProject['githubPublishInfo']>
+  ) => {
+    const updated: HostedProject = {
+      ...activeProject,
+      githubPublishInfo: info,
+      updatedAt: Date.now(),
+    };
+    await saveProject(updated);
+    setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+  };
+
   const handleFilesIngested = async (
     ingestedFiles: VirtualFile[],
     mode: 'new-project' | 'merge-current'
@@ -232,10 +258,47 @@ export default function App() {
       setActiveHtmlPath(newProj.entryHtmlPath);
       setSelectedEditorFilePath(newProj.entryHtmlPath);
       setConsoleLogs([]);
-      setActiveTab('workspace');
-      notify(
-        `Hosted "${newProj.title}" with ${newProj.files.length} offline file(s).`
-      );
+
+      // Check if auto-publish to GitHub Pages is enabled
+      const token = localStorage.getItem('staticdock_gh_token') || '';
+      if (autoPublishOnDrop && token) {
+        notify(`Auto-publishing "${newProj.title}" to GitHub Pages...`);
+        setActiveTab('github-publisher');
+        try {
+          const comp = compileProjectHtml(newProj, newProj.entryHtmlPath);
+          const pub = await publishProjectToGitHubPages({
+            token,
+            repoName: newProj.slug,
+            repoDescription: `${newProj.title} — Auto-published via StaticDock`,
+            isPrivate: false,
+            branch: 'main',
+            files: newProj.files,
+            standaloneHtml: comp.standaloneHtml,
+          });
+          const info = {
+            publishedAt: Date.now(),
+            repoUrl: pub.repoUrl,
+            pagesUrl: pub.pagesUrl,
+            repoName: pub.repo,
+            owner: pub.owner,
+            commitSha: pub.commitSha,
+            branch: pub.branch,
+            isLive: true,
+          };
+          const savedProj = { ...newProj, githubPublishInfo: info };
+          await saveProject(savedProj);
+          setProjects((prev) =>
+            prev.map((p) => (p.id === savedProj.id ? savedProj : p))
+          );
+          notify(`Auto-published live at: ${pub.pagesUrl}`);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Publish error';
+          notify(`Auto-publish error: ${msg}`);
+        }
+      } else {
+        setActiveTab('workspace');
+        notify(`Hosted "${newProj.title}" with ${newProj.files.length} file(s).`);
+      }
     } else {
       // Merge into activeProject
       const existingFiles = [...activeProject.files];
@@ -271,9 +334,7 @@ export default function App() {
         setSelectedEditorFilePath(ingestedFiles[0].path);
       }
       setActiveTab('workspace');
-      notify(
-        `Merged ${ingestedFiles.length} asset(s) into "${updatedProject.title}".`
-      );
+      notify(`Merged ${ingestedFiles.length} asset(s) into "${updatedProject.title}".`);
     }
   };
 
@@ -298,7 +359,7 @@ export default function App() {
     setSelectedEditorFilePath(newProj.entryHtmlPath);
     setConsoleLogs([]);
     setActiveTab('workspace');
-    notify(`Created and hosted "${newProj.title}".`);
+    notify(`Created & hosted "${newProj.title}".`);
   };
 
   const handleUpdateFileContent = async (fileId: string, newContent: string) => {
@@ -384,7 +445,7 @@ export default function App() {
     );
     setActiveHtmlPath(updatedProject.entryHtmlPath);
     setSelectedEditorFilePath(remaining[0].path);
-    notify('Removed file from local project.');
+    notify('Removed file from project.');
   };
 
   const handleDeleteProject = async (projId: string, e: React.MouseEvent) => {
@@ -396,14 +457,14 @@ export default function App() {
     if (activeProjectId === projId) {
       handleSelectProject(remaining[0]);
     }
-    notify('Deleted hosted site from local storage.');
+    notify('Deleted site from storage.');
   };
 
   const handleResetStarters = async () => {
     const reloaded = await resetStarterProjectsInDb();
     setProjects(reloaded);
     handleSelectProject(reloaded[0]);
-    notify('Restored default offline starter specimens.');
+    notify('Restored default starter specimens.');
   };
 
   const filteredProjects = useMemo(() => {
@@ -432,7 +493,7 @@ export default function App() {
     }
   }, [viewportPreset]);
 
-  // If user is in Full-Window Standalone Host mode, render the iframe edge-to-edge
+  // Full-window host mode
   if (isFullWindowHost) {
     return (
       <div className="fixed inset-0 z-50 bg-black flex flex-col">
@@ -446,13 +507,13 @@ export default function App() {
         <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-md border border-slate-700 bg-slate-950/90 px-3 py-1.5 text-xs text-slate-200 shadow-xl backdrop-blur">
           <span className="font-mono text-amber-400">{activeHtmlPath}</span>
           <span aria-hidden="true">·</span>
-          <span>Offline Host</span>
+          <span>Full Host</span>
           <button
             onClick={() => setIsFullWindowHost(false)}
             className="ml-2 inline-flex items-center gap-1 rounded bg-amber-500 px-2 py-0.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 cursor-pointer"
           >
             <Minimize2 className="w-3 h-3" />
-            <span>Exit Full Host</span>
+            <span>Exit Full</span>
           </button>
         </div>
       </div>
@@ -461,7 +522,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen h-screen flex flex-col bg-[#0b0f17] text-slate-100 select-none sm:select-auto overflow-hidden">
-      {/* Hidden inputs for instant file opening */}
+      {/* Hidden file inputs */}
       <input
         ref={quickOpenHtmlInputRef}
         type="file"
@@ -491,7 +552,7 @@ export default function App() {
         className="hidden"
       />
 
-      {/* Global Window Drag-and-Drop Overlay */}
+      {/* Global Drag-and-Drop Overlay */}
       {windowDragActive && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-sm p-8 flex flex-col items-center justify-center gap-6">
           <div className="max-w-3xl w-full grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -512,7 +573,7 @@ export default function App() {
                 Drop to Preview as New Hosted Site
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Drop any <code className="font-mono">.html</code> file, companion CSS/JS/images, folder, or <code className="font-mono">.zip</code> to compile and preview immediately.
+                Drop any HTML file, CSS/JS/images, folder, or .ZIP to compile &amp; preview immediately.
               </p>
             </div>
 
@@ -530,10 +591,10 @@ export default function App() {
             >
               <FolderPlus className="w-8 h-8 text-emerald-400" />
               <h3 className="text-lg font-semibold text-white">
-                Drop to Merge Assets into &ldquo;{activeProject.title}&rdquo;
+                Add Assets into &ldquo;{activeProject.title}&rdquo;
               </h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Add or update <code className="font-mono">.css</code>, <code className="font-mono">.js</code>, <code className="font-mono">.svg</code>, or image files inside the active site and re-link automatically.
+                Add or replace .css, .js, .svg, or images inside the active site and re-link automatically.
               </p>
             </div>
           </div>
@@ -550,21 +611,24 @@ export default function App() {
         </div>
       )}
 
-      {/* TOP BAR CONTRACT: Strictly 3 zones (Zone 1: Single text wordmark, Zone 2: 4 nav links, Zone 3: 2 actions) */}
+      {/* Header */}
       <header className="h-14 shrink-0 flex items-center justify-between px-5 border-b border-slate-800 bg-[#0b0f17]">
-        {/* Zone 1: Single text element wordmark */}
+        {/* Zone 1: Wordmark */}
         <a
           href="#workspace"
           onClick={(e) => {
             e.preventDefault();
             setActiveTab('workspace');
           }}
-          className="text-base font-bold tracking-tight text-slate-100 whitespace-nowrap shrink-0"
+          className="text-base font-bold tracking-tight text-slate-100 whitespace-nowrap shrink-0 flex items-center gap-2"
         >
-          StaticDock
+          <span>StaticDock</span>
+          <span className="hidden sm:inline text-[11px] font-mono font-normal text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+            Offline Host &amp; GH Pages
+          </span>
         </a>
 
-        {/* Zone 2: 4 Clean Text Navigation Links */}
+        {/* Zone 2: Navigation Links */}
         <nav className="flex items-center gap-6 text-xs font-medium text-slate-400 overflow-x-auto">
           <button
             onClick={() => setActiveTab('workspace')}
@@ -577,6 +641,17 @@ export default function App() {
             Workspace
           </button>
           <button
+            onClick={() => setActiveTab('github-publisher')}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'github-publisher'
+                ? 'text-amber-400 underline underline-offset-8 decoration-2'
+                : 'hover:text-slate-100'
+            }`}
+          >
+            <Rocket className="w-3.5 h-3.5 text-amber-400" />
+            <span>GitHub Publisher</span>
+          </button>
+          <button
             onClick={() => setActiveTab('asset-graph')}
             className={`py-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               activeTab === 'asset-graph'
@@ -587,16 +662,6 @@ export default function App() {
             Asset Graph ({activeProject.files.length})
           </button>
           <button
-            onClick={() => setActiveTab('github-deploy')}
-            className={`py-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              activeTab === 'github-deploy'
-                ? 'text-amber-400 underline underline-offset-8 decoration-2'
-                : 'hover:text-slate-100'
-            }`}
-          >
-            GitHub Deploy
-          </button>
-          <button
             onClick={() => setActiveTab('dropzone')}
             className={`py-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               activeTab === 'dropzone'
@@ -604,28 +669,40 @@ export default function App() {
                 : 'hover:text-slate-100'
             }`}
           >
-            Import Dropzone
+            Dropzone
           </button>
         </nav>
 
-        {/* Zone 3: 1-2 Primary Actions */}
+        {/* Zone 3: Actions */}
         <div className="flex items-center gap-2.5 shrink-0">
-          <PWAInstallButton />
+          <button
+            onClick={() => toggleAutoPublish(!autoPublishOnDrop)}
+            className={`hidden md:flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer border ${
+              autoPublishOnDrop
+                ? 'bg-amber-500/10 border-amber-500/50 text-amber-300'
+                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+            title="When active, dropping any HTML site automatically creates a repo and publishes to GitHub Pages"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span>Auto-Publish: {autoPublishOnDrop ? 'ON' : 'OFF'}</span>
+          </button>
+
           <button
             onClick={() => quickOpenHtmlInputRef.current?.click()}
             className="flex items-center gap-1.5 rounded-md bg-amber-500 px-3.5 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>Drop or Open HTML</span>
+            <span>Drop / Open HTML</span>
           </button>
         </div>
       </header>
 
-      {/* MAIN WORKBENCH BODY: Left Sidebar + Active Viewport */}
+      {/* Main Workspace Body */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Left Sidebar: Hosted Sites & Active Project Virtual Filesystem */}
+        {/* Left Sidebar */}
         <aside className="w-64 lg:w-72 shrink-0 border-r border-slate-800 bg-[#0d121c] flex flex-col min-h-0">
-          {/* Quick Drop Target Banner inside Sidebar */}
+          {/* Quick Drop Target in Sidebar */}
           <div
             onDragOver={(e) => e.preventDefault()}
             onDrop={async (e) => {
@@ -639,12 +716,19 @@ export default function App() {
             onClick={() => quickOpenHtmlInputRef.current?.click()}
             className="m-3 p-3 rounded-md border border-dashed border-slate-700 bg-slate-900/50 hover:border-amber-500/60 hover:bg-slate-900 transition-colors cursor-pointer"
           >
-            <div className="flex items-center gap-2 text-xs font-semibold text-amber-400">
-              <Upload className="w-3.5 h-3.5 shrink-0" />
-              <span>Drop .HTML or .ZIP Here</span>
+            <div className="flex items-center justify-between text-xs font-semibold text-amber-400">
+              <span className="flex items-center gap-1.5">
+                <Upload className="w-3.5 h-3.5" />
+                <span>Drop HTML or .ZIP Here</span>
+              </span>
+              {autoPublishOnDrop && (
+                <span className="text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded text-amber-300 font-mono">
+                  AUTO-PUB
+                </span>
+              )}
             </div>
             <p className="mt-1 text-[11px] text-slate-400 leading-snug">
-              Drag files anywhere in the window to host &amp; preview 100% offline.
+              Instant offline rendering with relative CSS, JS, &amp; SVG inlining.
             </p>
           </div>
 
@@ -656,24 +740,23 @@ export default function App() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Filter hosted sites or files..."
+                placeholder="Filter sites or files..."
                 className="w-full rounded border border-slate-800 bg-slate-950 pl-8 pr-2.5 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:border-slate-700 focus:outline-none"
               />
             </div>
           </div>
 
-          {/* Scrollable List of Hosted Projects + Active Project Files */}
+          {/* List of Hosted Sites */}
           <div className="flex-1 overflow-y-auto px-3 py-2 space-y-6">
-            {/* Section 1: Locally Hosted HTML Sites */}
             <div>
               <div className="flex items-center justify-between px-1 mb-2">
                 <span className="text-[11px] font-semibold text-slate-400">
-                  Hosted Offline Sites ({filteredProjects.length})
+                  Hosted Sites ({filteredProjects.length})
                 </span>
                 <button
                   onClick={handleResetStarters}
                   className="text-[11px] text-slate-500 hover:text-slate-300 inline-flex items-center gap-1 cursor-pointer"
-                  title="Restore default multi-file starter projects"
+                  title="Restore starter specimens"
                 >
                   <RotateCcw className="w-3 h-3" />
                   <span>Reset</span>
@@ -683,10 +766,8 @@ export default function App() {
               <div className="space-y-1">
                 {filteredProjects.map((proj) => {
                   const isSelected = proj.id === activeProject.id;
-                  const totalBytes = proj.files.reduce(
-                    (acc, f) => acc + f.sizeBytes,
-                    0
-                  );
+                  const totalBytes = proj.files.reduce((acc, f) => acc + f.sizeBytes, 0);
+
                   return (
                     <div
                       key={proj.id}
@@ -701,17 +782,26 @@ export default function App() {
                         <span className="text-xs font-medium truncate">
                           {proj.title}
                         </span>
-                        {projects.length > 1 && (
-                          <button
-                            onClick={(e) => handleDeleteProject(proj.id, e)}
-                            className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-0.5 transition-opacity cursor-pointer"
-                            title="Delete hosted site"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1">
+                          {proj.githubPublishInfo && (
+                            <span
+                              className="text-emerald-400"
+                              title={`Published: ${proj.githubPublishInfo.pagesUrl}`}
+                            >
+                              <Globe className="w-3 h-3" />
+                            </span>
+                          )}
+                          {projects.length > 1 && (
+                            <button
+                              onClick={(e) => handleDeleteProject(proj.id, e)}
+                              className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-0.5 transition-opacity cursor-pointer"
+                              title="Delete site"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      {/* Clean unboxed metadata with typographic separators */}
                       <div className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-400 font-mono tabular-nums">
                         <span>{proj.files.length} files</span>
                         <span aria-hidden="true">·</span>
@@ -725,17 +815,17 @@ export default function App() {
               </div>
             </div>
 
-            {/* Section 2: Active Site Virtual File Tree */}
+            {/* Active Site Virtual File Tree */}
             <div className="border-t border-slate-800/80 pt-4">
               <div className="flex items-center justify-between px-1 mb-2">
                 <span className="text-[11px] font-semibold text-slate-400">
-                  Site Files ({activeProject.files.length})
+                  Files ({activeProject.files.length})
                 </span>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowNewFileModal(true)}
                     className="text-[11px] text-amber-400 hover:text-amber-300 inline-flex items-center gap-0.5 cursor-pointer"
-                    title="Create a new HTML, CSS, JS, or SVG file in this project"
+                    title="Create a new HTML, CSS, JS, or SVG file"
                   >
                     <Plus className="w-3 h-3" />
                     <span>New</span>
@@ -743,10 +833,10 @@ export default function App() {
                   <button
                     onClick={() => addAssetsToCurrentInputRef.current?.click()}
                     className="text-[11px] text-slate-400 hover:text-slate-200 inline-flex items-center gap-0.5 cursor-pointer"
-                    title="Upload CSS, JS, SVG, or image assets into this project"
+                    title="Upload assets into this site"
                   >
                     <Upload className="w-3 h-3" />
-                    <span>Add Asset</span>
+                    <span>Add</span>
                   </button>
                 </div>
               </div>
@@ -798,18 +888,26 @@ export default function App() {
             </div>
           </div>
 
-          {/* Sidebar Footer: Offline Storage Status */}
+          {/* Sidebar Footer */}
           <div className="p-3 border-t border-slate-800 bg-[#090d14] flex items-center justify-between text-[11px] text-slate-400">
-            <span>
-              {isOnline ? 'Offline-Ready · IndexedDB' : 'Offline Mode Active'}
-            </span>
+            <span>Offline-First Storage</span>
             <span className="font-mono tabular-nums text-slate-300">
-              {projects.reduce((acc, p) => acc + p.files.length, 0)} local assets
+              {projects.reduce((acc, p) => acc + p.files.length, 0)} assets
             </span>
           </div>
         </aside>
 
-        {/* Main Content Viewport */}
+        {/* Views */}
+        {activeTab === 'github-publisher' && (
+          <GitHubPublisherView
+            project={activeProject}
+            compiled={compiled}
+            autoPublishOnDrop={autoPublishOnDrop}
+            onToggleAutoPublish={toggleAutoPublish}
+            onUpdateProjectGithubInfo={handleUpdateProjectGithubInfo}
+          />
+        )}
+
         {activeTab === 'asset-graph' && (
           <AssetGraphView
             project={activeProject}
@@ -825,13 +923,10 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'github-deploy' && (
-          <GitHubDeployView project={activeProject} compiled={compiled} />
-        )}
-
         {activeTab === 'dropzone' && (
           <DropzoneView
             activeProject={activeProject}
+            autoPublishOnDrop={autoPublishOnDrop}
             onFilesIngested={handleFilesIngested}
             onCreateFromRawHtml={handleCreateFromRawHtml}
           />
@@ -839,9 +934,8 @@ export default function App() {
 
         {activeTab === 'workspace' && (
           <main className="flex-1 flex flex-col min-w-0 min-h-0 bg-[#0b0f17]">
-            {/* Contextual Preview & Sandbox Sub-Toolbar */}
+            {/* Workbench Sub-Toolbar */}
             <div className="h-11 shrink-0 px-4 border-b border-slate-800 bg-[#0f1522] flex items-center justify-between gap-3 overflow-x-auto">
-              {/* Left: Breadcrumb & Asset Resolution Status */}
               <div className="flex items-center gap-2 text-xs min-w-0 shrink-0">
                 <span className="font-medium text-slate-200 truncate max-w-[200px]">
                   {activeProject.title}
@@ -853,13 +947,12 @@ export default function App() {
                   {compiled.dependencies.filter(
                     (d) => d.status === 'resolved-local' || d.status === 'inline-data'
                   ).length}{' '}
-                  inlined assets ({formatBytes(compiled.totalSizeBytes)})
+                  inlined ({formatBytes(compiled.totalSizeBytes)})
                 </span>
               </div>
 
               {/* Center: Split Mode & Viewport Width Controls */}
               <div className="flex items-center gap-3 shrink-0">
-                {/* Split View Segmented Buttons */}
                 <div className="flex items-center gap-0.5 p-0.5 rounded bg-slate-900 border border-slate-800">
                   <button
                     onClick={() => setSplitMode('preview-only')}
@@ -881,7 +974,7 @@ export default function App() {
                     }`}
                   >
                     <Columns className="w-3.5 h-3.5" />
-                    <span>Split Code + Preview</span>
+                    <span>Split</span>
                   </button>
                   <button
                     onClick={() => setSplitMode('code-only')}
@@ -896,7 +989,7 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* Responsive Viewport Switcher */}
+                {/* Viewport Width Buttons */}
                 {splitMode !== 'code-only' && (
                   <div className="hidden md:flex items-center gap-0.5 p-0.5 rounded bg-slate-900 border border-slate-800">
                     <button
@@ -906,7 +999,6 @@ export default function App() {
                           ? 'bg-slate-800 text-amber-400'
                           : 'text-slate-400 hover:text-slate-200'
                       }`}
-                      title="Fluid 100% width"
                     >
                       100%
                     </button>
@@ -947,8 +1039,17 @@ export default function App() {
                 )}
               </div>
 
-              {/* Right: Runtime Actions */}
+              {/* Right Actions */}
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setActiveTab('github-publisher')}
+                  className="flex items-center gap-1 rounded bg-amber-500/10 border border-amber-500/40 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500 hover:text-slate-950 transition-colors cursor-pointer"
+                  title="Publish to GitHub Pages"
+                >
+                  <Rocket className="w-3.5 h-3.5" />
+                  <span>Publish to GH Pages</span>
+                </button>
+
                 <button
                   onClick={() => setIframeKey((k) => k + 1)}
                   className="flex items-center gap-1 rounded border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-slate-300 hover:border-slate-700 hover:text-white transition-colors cursor-pointer"
@@ -965,10 +1066,10 @@ export default function App() {
                       ? 'border-amber-500/60 bg-amber-500/10 text-amber-300'
                       : 'border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700'
                   }`}
-                  title="Toggle captured iframe console logs"
+                  title="Toggle console"
                 >
                   <Terminal className="w-3.5 h-3.5" />
-                  <span>Console ({consoleLogs.length})</span>
+                  <span>Logs ({consoleLogs.length})</span>
                 </button>
 
                 <button
@@ -979,7 +1080,7 @@ export default function App() {
                     )
                   }
                   className="flex items-center gap-1 rounded border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-slate-200 hover:border-slate-700 hover:text-white transition-colors cursor-pointer"
-                  title="Download self-contained single-file offline HTML"
+                  title="Download self-contained offline HTML"
                 >
                   <Download className="w-3.5 h-3.5 text-amber-400" />
                   <span className="hidden lg:inline">Bundle .HTML</span>
@@ -988,17 +1089,16 @@ export default function App() {
                 <button
                   onClick={() => setIsFullWindowHost(true)}
                   className="flex items-center gap-1 rounded border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs text-slate-200 hover:border-amber-500/50 hover:text-white transition-colors cursor-pointer"
-                  title="Expand preview to full-window standalone host"
+                  title="Full window host"
                 >
                   <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="hidden lg:inline">Full Host</span>
+                  <span className="hidden lg:inline">Full</span>
                 </button>
               </div>
             </div>
 
-            {/* Split Editor & Live HTML Preview Container */}
+            {/* Split Editor & Live Preview Frame */}
             <div className="flex-1 flex min-h-0 overflow-hidden">
-              {/* Left Pane: Live Source Code / Asset Editor (shown in 'split' or 'code-only') */}
               {splitMode !== 'preview-only' && selectedEditorFile && (
                 <div
                   className={`${
@@ -1030,8 +1130,7 @@ export default function App() {
                       ))}
                     </div>
                     <span className="text-[11px] font-mono text-slate-500 whitespace-nowrap shrink-0">
-                      {selectedEditorFile.mimeType} ·{' '}
-                      {formatBytes(selectedEditorFile.sizeBytes)}
+                      {selectedEditorFile.mimeType} · {formatBytes(selectedEditorFile.sizeBytes)}
                     </span>
                   </div>
 
@@ -1047,7 +1146,7 @@ export default function App() {
                         />
                       ) : null}
                       <p className="text-xs font-mono text-slate-400">
-                        Binary Asset ({selectedEditorFile.path}) — Inlined automatically via Data URI
+                        Binary Asset ({selectedEditorFile.path}) — Inlined via Data URI
                       </p>
                     </div>
                   ) : (
@@ -1066,7 +1165,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Right Pane: Live Compiled HTML Preview Iframe */}
               {splitMode !== 'code-only' && (
                 <div className="flex-1 flex flex-col items-center justify-start bg-[#070a0f] overflow-auto min-h-0">
                   <div
@@ -1084,20 +1182,20 @@ export default function App() {
               )}
             </div>
 
-            {/* Collapsible Captured Iframe Console Drawer */}
+            {/* Console Drawer */}
             {consoleOpen && (
               <div className="h-44 shrink-0 border-t border-slate-800 bg-[#090d15] flex flex-col">
                 <div className="h-8 px-4 border-b border-slate-800/80 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2 font-mono text-slate-300">
                     <Terminal className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Preview Runtime Console ({activeHtmlPath})</span>
+                    <span>Preview Console ({activeHtmlPath})</span>
                   </div>
                   <div className="flex items-center gap-3">
                     <button
                       onClick={() => setConsoleLogs([])}
                       className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
                     >
-                      Clear Logs
+                      Clear
                     </button>
                     <button
                       onClick={() => setConsoleOpen(false)}
@@ -1111,7 +1209,7 @@ export default function App() {
                 <div className="flex-1 overflow-y-auto p-3 space-y-1.5 font-mono text-xs">
                   {consoleLogs.length === 0 ? (
                     <div className="text-slate-500">
-                      No console output emitted yet. Interact with the HTML preview to capture logs.
+                      No console output captured yet.
                     </div>
                   ) : (
                     consoleLogs.map((item) => (
@@ -1142,7 +1240,7 @@ export default function App() {
         )}
       </div>
 
-      {/* Modal: Create New Blank File in Active Project */}
+      {/* Modal: Add New Blank File */}
       {showNewFileModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
           <form
@@ -1151,7 +1249,7 @@ export default function App() {
           >
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-base font-semibold text-slate-100">
-                Add New File to &ldquo;{activeProject.title}&rdquo;
+                Add File to &ldquo;{activeProject.title}&rdquo;
               </h3>
               <button
                 type="button"
@@ -1163,29 +1261,31 @@ export default function App() {
             </div>
 
             <div className="space-y-2">
-              <label className="block text-xs font-medium text-slate-300">
-                Relative File Path (e.g. <code>styles/theme.css</code>, <code>app.js</code>, <code>about.html</code>, <code>icon.svg</code>)
-              </label>
+              <label className="text-xs text-slate-300">File Path or Name</label>
               <input
                 type="text"
                 value={newFileName}
                 onChange={(e) => setNewFileName(e.target.value)}
+                placeholder="e.g. style.css, script.js, page2.html"
+                className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-mono text-slate-100 focus:border-amber-500 focus:outline-none"
                 autoFocus
-                className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs font-mono text-slate-100 focus:border-amber-500 focus:outline-none"
               />
+              <p className="text-[11px] text-slate-400">
+                Supports .html, .css, .js, .svg, .json, and .txt.
+              </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setShowNewFileModal(false)}
-                className="rounded-md border border-slate-700 px-3.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+                className="rounded border border-slate-700 bg-slate-900 px-3.5 py-1.5 text-xs text-slate-300 hover:text-white cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="rounded-md bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 cursor-pointer"
+                className="rounded bg-amber-500 px-4 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-400 cursor-pointer"
               >
                 Create File
               </button>
@@ -1194,17 +1294,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Non-intrusive Status Toast & Offline Banner */}
+      {/* Toast Notification */}
       {statusNotice && (
-        <div className="fixed bottom-4 right-4 z-50 rounded-md border border-slate-700 bg-slate-900/95 px-4 py-2 text-xs font-medium text-slate-100 shadow-xl">
-          {statusNotice}
-        </div>
-      )}
-
-      {!isOnline && (
-        <div className="fixed bottom-4 left-4 z-50 flex items-center gap-2 rounded-md border border-amber-500/40 bg-slate-950/95 px-3.5 py-2 text-xs font-medium text-amber-300 shadow-lg">
-          <WifiOff className="w-3.5 h-3.5 text-amber-400" />
-          <span>Offline Mode — Serving from Local Service Worker &amp; IndexedDB</span>
+        <div className="fixed bottom-5 right-5 z-50 rounded-md border border-slate-700 bg-[#0f1624] px-4 py-2.5 text-xs font-medium text-slate-100 shadow-2xl flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          <span>{statusNotice}</span>
         </div>
       )}
     </div>
